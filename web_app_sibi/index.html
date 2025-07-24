@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Sistem Komunikasi Bahasa Isyarat</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.13.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  </head>
+  <body>
+    <h1>Deteksi Bahasa Isyarat</h1>
+
+    <div class="controls">
+      <!-- Dropdown pemilih bahasa isyarat -->
+      <label>Pilih Bahasa Isyarat:</label>
+      <select id="mode-select">
+        <option value="sibi">SIBI</option>
+        <option value="bisindo">BISINDO</option>
+      </select>
+
+      <!-- Pemilih kamera -->
+      <label>Pilih Kamera:</label>
+      <select id="camera-select"></select>
+      <button onclick="switchCamera()">Ganti Kamera</button>
+
+      <!-- Tombol kontrol tambahan -->
+      <button onclick="resetSentence()">🗑️ Reset Kalimat</button>
+      <button onclick="speakSentence()">🔊 Baca Kalimat</button>
+    </div>
+
+    <video id="webcam" autoplay playsinline width="640" height="480"></video>
+    <canvas id="output-canvas" width="640" height="480"></canvas>
+
+    <div id="gesture-result">Gesture: -</div>
+    <div id="sentence-result">Kalimat:</div>
+    <div id="speech-result">STT: -</div>
+
+    <script src="script.js"></script>
+    <script>
+      document.getElementById("mode-select").addEventListener("change", () => {
+        loadModel(); // muat model saat user ganti bahasa isyarat
+      });
+
+      window.onload = () => {
+        loadModel(); // muat model default (misalnya SIBI)
+      };
+    </script>
+  </body>
+</html>
