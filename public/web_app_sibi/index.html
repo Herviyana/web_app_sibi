@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Deteksi Bahasa Isyarat</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- CSS -->
+    <link rel="stylesheet" href="style.css" />
+
+    <!-- TensorFlow & MediaPipe -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.13.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  </head>
+
+  <body>
+    <div class="container">
+      <h1>Deteksi Bahasa Isyarat</h1>
+
+      <div class="controls">
+        <label for="mode-select">Pilih Bahasa Isyarat:</label><br />
+        <select id="mode-select">
+          <option value="sibi">SIBI</option>
+          <option value="bisindo">BISINDO</option>
+        </select>
+
+        <label for="camera-select">Pilih Kamera:</label><br />
+        <select id="camera-select"></select>
+      </div>
+
+      <div class="button-group">
+        <button onclick="switchCamera()">🔄 Ganti Kamera</button>
+        <button onclick="resetSentence()">🗑️ Reset Kalimat</button>
+        <button onclick="speakSentence()">🔊 Baca Kalimat</button>
+      </div>
+
+      <div class="video-container">
+        <video id="webcam" autoplay playsinline></video>
+        <canvas id="output-canvas"></canvas>
+      </div>
+
+      <div class="output-section">
+        <p id="gesture-result"><strong>Gesture:</strong> -</p>
+        <p id="sentence-result"><strong>Kalimat:</strong> -</p>
+        <p id="speech-result">
+          <strong>STT:</strong> <i>Menunggu input suara...</i>
+        </p>
+      </div>
+    </div>
+
+    <script src="script.js"></script>
+  </body>
+</html>
