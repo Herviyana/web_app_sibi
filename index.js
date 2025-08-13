@@ -10,7 +10,7 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // Ganti static folder ke direktori web_app_sibi
-app.use(express.static(path.join(__dirname, "public/web_app_sibi/")));
+app.use(express.static(path.join(__dirname, "public")));
 
 // Arahkan root path (/) ke index.html
 // app.get("/", (req, res) => {
