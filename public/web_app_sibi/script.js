@@ -1,14 +1,28 @@
 // ==================== BAGIAN 1: SETUP STT (Web Speech API) ====================
 
+// Pindahkan deklarasi ke scope global agar bisa diakses di mana saja
+let recognition = null;
+let isRecognizing = false;
+const errorContainer = document.getElementById("error-container");
+
+function showError(message) {
+  errorContainer.textContent = message;
+  errorContainer.style.display = "block";
+  setTimeout(() => {
+    errorContainer.style.display = "none";
+  }, 5000); // Sembunyikan setelah 5 detik
+}
+
 const SpeechRecognition =
   window.SpeechRecognition || window.webkitSpeechRecognition;
 
 if (SpeechRecognition) {
-  const recognition = new SpeechRecognition();
+  recognition = new SpeechRecognition(); // Gunakan variabel global, jangan deklarasi ulang
   recognition.lang = "id-ID";
   recognition.continuous = true;
   recognition.interimResults = true;
 
+  // Handle hasil STT
   recognition.onresult = (event) => {
     let finalTranscript = "";
     let interimTranscript = "";
@@ -22,33 +36,52 @@ if (SpeechRecognition) {
       }
     }
 
-    // Tampilkan hasil STT ke layar
     const speechResult = document.getElementById("speech-result");
     speechResult.innerHTML = `STT: ${finalTranscript} <i style="color:gray">${interimTranscript}</i>`;
   };
 
+  // Handle error STT
   recognition.onerror = (event) => {
     console.error("STT Error:", event.error);
 
     if (event.error === "no-speech") {
       console.log("STT Error: no-speech, mencoba ulang...");
-      recognition.stop();
-      setTimeout(() => recognition.start(), 1000);
+      if (isRecognizing) {
+        recognition.stop(); // stop dulu
+      }
     }
 
     if (event.error === "not-allowed") {
-      alert("Izin mikrofon ditolak. Silakan izinkan akses mikrofon.");
+      showError(
+        "Izin mikrofon ditolak. Silakan izinkan akses mikrofon di pengaturan browser Anda."
+      );
     }
   };
 
+  // Handle ketika STT berhenti → start ulang otomatis
   recognition.onend = () => {
     console.warn("STT berhenti, mencoba mengaktifkan ulang...");
-    recognition.start();
+    isRecognizing = false;
+    // Hanya restart otomatis jika mode suara masih aktif
+    if (inputMode === "voice") {
+      setTimeout(() => {
+        try {
+          recognition.start();
+        } catch (error) {
+          console.warn("Gagal memulai ulang STT:", error.message);
+        }
+      }, 1000);
+    }
   };
 
-  recognition.start();
+  recognition.onstart = () => {
+    isRecognizing = true;
+    console.log("STT dimulai...");
+  };
 } else {
-  alert("Browser tidak mendukung Web Speech API. Gunakan Google Chrome.");
+  showError(
+    "Browser tidak mendukung Web Speech API. Fitur suara tidak akan berfungsi. Silakan gunakan Google Chrome."
+  );
 }
 
 // ==================== BAGIAN 2: SETUP DETEKSI GESTURE (MediaPipe + TFJS) ====================
@@ -56,20 +89,22 @@ if (SpeechRecognition) {
 let sibiModel = null;
 let bisindoModel = null;
 let currentMode = "sibi";
+let inputMode = "none"; // 'none', 'voice', 'gesture'
 let currentStream;
 let lastGesture = "";
 let sentence = "";
-let lastUpdateTime = 0;
 const gestureDelay = 2000;
 let predicitionHistory = []; // Riwayat prediksi untuk stabilisasi
 const maxHistory = 10; // Ukuran maksimum riwayat prediksi
 let lastAddedTIme = 0; // Waktu penambahan terakhir ke riwayat
 let predictionBuffer = []; // Buffer untuk stabilisasi prediksi
-const bufferSize = 15; // Ukuran buffer prediksi (kalimat)
-const cooldown = 1000; // Cooldown antara penambahan kalimat
+const bufferSize = 8; // Ukuran buffer prediksi (kalimat)
+const cooldown = 2000; // Cooldown antara penambahan kalimat
 let kalimat = ""; // Kalimat yang dibangun dari gesture
 const kalimatText = document.getElementById("kalimat");
 const gestureLabel = document.getElementById("gesture");
+let selectedDeviceId = null;
+let lastUpdateTime = 0;
 
 //Label SIBI dan BISINDO
 const sibiLabels = [
@@ -99,7 +134,6 @@ const sibiLabels = [
   "Y",
 ];
 const bisindoLabels = [
-  // Angka
   "1",
   "2",
   "3",
@@ -109,8 +143,18 @@ const bisindoLabels = [
   "7",
   "8",
   "9",
-
-  // Huruf
+  "Benar",
+  "Bertemu",
+  "Bis",
+  "Kamu",
+  "Kapan",
+  "Maaf",
+  "Makan",
+  "Minum",
+  "Mobil",
+  "Motor",
+  "Sama-sama",
+  "Terimakasih",
   "a",
   "b",
   "c",
@@ -137,20 +181,6 @@ const bisindoLabels = [
   "x",
   "y",
   "z",
-
-  // Kata umum
-  "Benar",
-  "Bertemu",
-  "Bis",
-  "Kamu",
-  "Kapan",
-  "Maaf",
-  "Makan",
-  "Minum",
-  "Mobil",
-  "Motor",
-  "Sama-sama",
-  "Terimakasih",
 ];
 
 //---------------------Load Model----------------/
@@ -160,9 +190,9 @@ async function loadModel() {
   // Update opsi tangan sesuai mode
   hands.setOptions({
     maxNumHands: currentMode === "bisindo" ? 2 : 1,
-    modelComplexity: 0,
-    minDetectionConfidence: 0.7,
-    minTrackingConfidence: 0.7,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.6,
   });
 
   // Model SIBI
@@ -173,7 +203,7 @@ async function loadModel() {
 
   // Model BISINDO
   if (currentMode === "bisindo" && !bisindoModel) {
-    bisindoModel = await tf.loadGraphModel("./tfjs_bisindo/model_bisindo.json");
+    bisindoModel = await tf.loadGraphModel("./tfjs_bisindo/model.json");
     console.log("Model BISINDO loaded");
   }
 }
@@ -185,6 +215,155 @@ function getActiveModel() {
 function getLabel(pred) {
   const idx = pred.indexOf(Math.max(...pred));
   return currentMode === "sibi" ? sibiLabels[idx] : bisindoLabels[idx];
+}
+
+//-----------------MediaPipe Hands-----------------/
+const hands = new Hands({
+  locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+});
+
+let isCanvasInitialized = false;
+
+// Saat hasil deteksi tangan diterima
+hands.onResults((results) => {
+  if (
+    !isCanvasInitialized &&
+    videoElement.videoWidth > 0 &&
+    videoElement.videoHeight > 0
+  ) {
+    canvasElement.width = videoElement.videoWidth;
+    canvasElement.height = videoElement.videoHeight;
+    isCanvasInitialized = true;
+  }
+
+  canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+  canvasCtx.drawImage(
+    videoElement,
+    0,
+    0,
+    canvasElement.width,
+    canvasElement.height
+  );
+
+  const handCount = results.multiHandLandmarks?.length || 0;
+
+  // Validasi jumlah tangan berdasarkan mode
+  if (
+    (currentMode === "sibi" && handCount !== 1) ||
+    (currentMode === "bisindo" && handCount === 0)
+  )
+    return;
+
+  const boxColor = currentMode === "sibi" ? "lime" : "red";
+  canvasCtx.strokeStyle = boxColor;
+  canvasCtx.fillStyle = boxColor;
+  canvasCtx.font = "16px Arial";
+
+  // Gabungkan semua landmark dari semua tangan
+  let allLandmarks = [];
+
+  if (currentMode === "sibi") {
+    allLandmarks = results.multiHandLandmarks[0]; // Ambil hanya 1 tangan
+  } else if (currentMode === "bisindo") {
+    if (handCount === 2) {
+      allLandmarks = [
+        ...results.multiHandLandmarks[0],
+        ...results.multiHandLandmarks[1],
+      ];
+    } else if (handCount === 1) {
+      const zeroLandmarks = Array(21).fill({ x: 0, y: 0, z: 0 });
+      allLandmarks = [...results.multiHandLandmarks[0], ...zeroLandmarks];
+    }
+  }
+
+  // Hitung posisi rata-rata untuk menampilkan label gesture
+  const x =
+    (allLandmarks.reduce((sum, p) => sum + p.x, 0) / allLandmarks.length) *
+    canvasElement.width;
+  const y =
+    (allLandmarks.reduce((sum, p) => sum + p.y, 0) / allLandmarks.length) *
+    canvasElement.height;
+
+  // Gambar landmark dan konektor
+  results.multiHandLandmarks.forEach((landmarks) => {
+    drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {
+      color: boxColor,
+      lineWidth: 2,
+    });
+    drawLandmarks(canvasCtx, landmarks, { color: boxColor, lineWidth: 1 });
+  });
+
+  // Ubah ke array 1 dimensi (x,y,z)
+  const flat = allLandmarks.flatMap((p) => [p.x, p.y, p.z]);
+  const expectedLength = currentMode === "sibi" ? 63 : 126;
+
+  if (flat.length === expectedLength) {
+    tf.tidy(() => {
+      const input = tf.tensor(flat).reshape([1, expectedLength, 1]);
+      const model = getActiveModel();
+      if (!model) return;
+
+      const pred = model.predict(input);
+      pred.array().then((p) => {
+        const maxConfidence = Math.max(...p[0]);
+        const gesture = getLabel(p[0]);
+
+        // Selalu update akurasi untuk memberikan feedback real-time
+        document.getElementById("confidence-result").innerText = `Akurasi: ${(
+          maxConfidence * 100
+        ).toFixed(2)}%`;
+
+        if (maxConfidence < 0.8) {
+          document.getElementById("gesture-result").innerText =
+            "Gesture: (Akurasi rendah)";
+          return; // Hentikan jika akurasi tidak cukup
+        }
+
+        predictionBuffer.push(gesture);
+        if (predictionBuffer.length > bufferSize) predictionBuffer.shift();
+        const majority = getMajorityVote(predictionBuffer);
+
+        if (
+          majority !== lastGesture &&
+          Date.now() - lastUpdateTime > gestureDelay
+        ) {
+          sentence += majority + " ";
+          lastGesture = majority;
+          lastUpdateTime = Date.now();
+
+          // Perbaiki bug update kalimat dan panggil MQTT
+          document.getElementById("sentence-result").innerText =
+            "Kalimat: " + sentence.trim();
+          sendPrediction(majority);
+        }
+
+        document.getElementById("gesture-result").innerText =
+          "Gesture: " + majority;
+        canvasCtx.fillText(
+          `${majority} (${(maxConfidence * 100).toFixed(0)}%)`,
+          x,
+          y - 10
+        );
+      });
+    });
+  }
+});
+
+// Fungsi untuk mengambil vote terbanyak (majority vote)
+function getMajorityVote(arr) {
+  const freq = {};
+  arr.forEach((item) => {
+    freq[item] = (freq[item] || 0) + 1;
+  });
+  let majority = arr[0];
+  let maxCount = 0;
+  for (const key in freq) {
+    if (freq[key] > maxCount) {
+      majority = key;
+      maxCount = freq[key];
+    }
+  }
+  return majority;
 }
 
 //---------------------Kalimat dan suara ----------------/
@@ -238,7 +417,7 @@ async function switchCamera() {
       });
       videoElement.srcObject = fallbackStream;
     } catch (fallbackError) {
-      alert("Tidak dapat mengakses kamera apa pun.");
+      showError("Tidak dapat mengakses kamera. Pastikan Anda memberikan izin.");
     }
   }
 }
@@ -246,7 +425,8 @@ async function switchCamera() {
 // Kamera aktif
 const camera = new Camera(videoElement, {
   onFrame: async () => {
-    if (getActiveModel()) {
+    // Hanya proses gesture jika mode gestur aktif dan model sudah dimuat
+    if (inputMode === "gesture" && getActiveModel()) {
       await hands.send({ image: videoElement });
     }
   },
@@ -254,149 +434,59 @@ const camera = new Camera(videoElement, {
   height: 480,
 });
 
-//-----------------MediaPipe Hands-----------------/
-const hands = new Hands({
-  locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
-});
+// ==================== BAGIAN 3: KONTROL MODE INPUT ====================
+const voiceModeBtn = document.getElementById("voice-mode-btn");
+const gestureModeBtn = document.getElementById("gesture-mode-btn");
+const inputModeStatus = document.getElementById("input-mode-status");
+const speechResultEl = document.getElementById("speech-result");
+const gestureResultEl = document.getElementById("gesture-result");
+const confidenceResultEl = document.getElementById("confidence-result");
 
-let isCanvasInitialized = false;
+function activateVoiceMode() {
+  if (inputMode === "voice") return; // Sudah aktif
+  console.log("Mengaktifkan Mode Suara...");
+  inputMode = "voice";
 
-// Saat hasil deteksi tangan diterima
-hands.onResults((results) => {
-  // Jalankan inisialisasi canvas hanya sekali saat pertama kali video sudah aktif
-  if (
-    !isCanvasInitialized &&
-    videoElement.videoWidth > 0 &&
-    videoElement.videoHeight > 0
-  ) {
-    canvasElement.width = videoElement.videoWidth;
-    canvasElement.height = videoElement.videoHeight;
-    isCanvasInitialized = true;
-  }
+  // Update UI
+  inputModeStatus.textContent = "Suara Aktif";
+  inputModeStatus.style.color = "#5cb85c"; // Hijau
+  voiceModeBtn.disabled = true;
+  gestureModeBtn.disabled = false;
 
-  // Bersihkan canvas dan gambar ulang dari frame video
-  canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-  canvasCtx.drawImage(
-    videoElement,
-    0,
-    0,
-    canvasElement.width,
-    canvasElement.height
-  );
+  // Beri penekanan visual pada output STT
+  speechResultEl.style.opacity = 1;
+  gestureResultEl.style.opacity = 0.5;
+  confidenceResultEl.style.opacity = 0.5;
 
-  // Jika tidak ada tangan, hentikan proses
-  if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0)
-    return;
-
-  // Warna tergantung mode
-  const boxColor = currentMode === "sibi" ? "lime" : "red";
-  canvasCtx.strokeStyle = boxColor;
-  canvasCtx.fillStyle = boxColor;
-  canvasCtx.font = "16px Arial";
-
-  // Ambil semua titik tangan
-  const allLandmarks = results.multiHandLandmarks.flat();
-  const x =
-    (allLandmarks.reduce((sum, p) => sum + p.x, 0) / allLandmarks.length) *
-    canvasElement.width;
-  const y =
-    (allLandmarks.reduce((sum, p) => sum + p.y, 0) / allLandmarks.length) *
-    canvasElement.height;
-
-  // Gambar titik dan garis tangan
-  results.multiHandLandmarks.forEach((landmarks) => {
-    drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {
-      color: boxColor,
-      lineWidth: 2,
-    });
-    drawLandmarks(canvasCtx, landmarks, { color: boxColor, lineWidth: 1 });
-  });
-
-  // Ubah ke array flat (x, y, z)
-  const flat = allLandmarks.flatMap((p) => [p.x, p.y, p.z]);
-  const expectedLength = currentMode === "sibi" ? 63 : 126;
-
-  if (flat.length === expectedLength) {
-    tf.tidy(() => {
-      const input = tf.tensor(flat).reshape([1, expectedLength, 1]);
-      const model = getActiveModel();
-      if (!model) return;
-
-      const pred = model.predict(input);
-      pred.array().then((p) => {
-        const gesture = getLabel(p[0]);
-
-        // Masukkan gesture ke buffer prediksi
-        predictionBuffer.push(gesture);
-        if (predictionBuffer.length > bufferSize) predictionBuffer.shift();
-        const majority = getMajorityVote(predictionBuffer);
-
-        // Update kalimat jika gesture baru dan cukup jeda
-        // Update kalimat jika gesture baru dan cukup jeda
-        if (
-          majority !== lastGesture &&
-          Date.now() - lastUpdateTime > gestureDelay
-        ) {
-          sentence += majority + " ";
-          lastGesture = majority;
-          lastUpdateTime = Date.now();
-
-          // Update tampilan
-          document.getElementById("sentence-result").innerText =
-            "Kalimat: " + sentence.trim();
-
-          // Kirim ke MQTT
-          sendPrediction(majority);
-        }
-
-        // Tampilkan gesture di layar
-        document.getElementById("gesture-result").innerText =
-          "Gesture: " + majority;
-        canvasCtx.fillText(majority, x, y - 10);
-      });
-    });
-  }
-});
-
-// Fungsi untuk mengambil vote terbanyak (majority vote)
-function getMajorityVote(arr) {
-  const freq = {};
-  arr.forEach((item) => {
-    freq[item] = (freq[item] || 0) + 1;
-  });
-  let majority = arr[0];
-  let maxCount = 0;
-  for (const key in freq) {
-    if (freq[key] > maxCount) {
-      majority = key;
-      maxCount = freq[key];
+  // Mulai STT
+  if (recognition && !isRecognizing) {
+    try {
+      recognition.start();
+    } catch (e) {
+      console.error("Gagal memulai STT:", e);
     }
   }
-  return majority;
 }
 
-// Fungsi utama update prediksi gesture
-function updateGesture(predictedGesture) {
-  predictionHistory.push(predictedGesture);
-  if (predictionHistory.length > maxHistory) {
-    predictionHistory.shift(); // Hapus prediksi lama
-  }
+function activateGestureMode() {
+  if (inputMode === "gesture") return; // Sudah aktif
+  console.log("Mengaktifkan Mode Gestur...");
+  inputMode = "gesture";
 
-  const majorityGesture = getMajorityVote(predictionHistory);
-  gestureLabel.innerText = "Gesture: " + majorityGesture;
+  // Update UI
+  inputModeStatus.textContent = "Gestur Aktif";
+  inputModeStatus.style.color = "#5bc0de"; // Biru
+  voiceModeBtn.disabled = false;
+  gestureModeBtn.disabled = true;
 
-  const now = Date.now();
+  // Beri penekanan visual pada output Gesture
+  speechResultEl.style.opacity = 0.5;
+  gestureResultEl.style.opacity = 1;
+  confidenceResultEl.style.opacity = 1;
 
-  // Tambahkan ke kalimat hanya jika gesture berubah & sudah lewat cooldown
-  if (
-    majorityGesture &&
-    majorityGesture !== lastGesture &&
-    now - lastAddedTime > cooldown
-  ) {
-    kalimat += majorityGesture + " ";
-    kalimatText.innerText = "Kalimat: " + kalimat;
-    lastGesture = majorityGesture;
-    lastAddedTime = now;
+  // Hentikan STT jika sedang berjalan
+  if (recognition && isRecognizing) {
+    recognition.stop();
   }
 }
 
@@ -407,6 +497,7 @@ async function main() {
   await getCameras();
   await switchCamera();
   await loadModel();
+  gestureModeBtn.disabled = false; // Aktifkan tombol gestur setelah model siap
   camera.start();
   document.getElementById("gesture-result").innerText = "Gesture: -";
 }
@@ -415,23 +506,9 @@ main();
 
 document.getElementById("mode-select").addEventListener("change", loadModel);
 
-//-----------------------MQTT--------------------//
-function updateKalimat(gesture) {
-  const now = Date.now();
-  predictionBuffer.push(gesture);
-  if (predictionBuffer.length > bufferSize) predictionBuffer.shift();
+voiceModeBtn.addEventListener("click", activateVoiceMode);
+gestureModeBtn.addEventListener("click", activateGestureMode);
 
-  const majority = getMajorityVote(predictionBuffer);
-
-  if (majority !== lastGesture && now - lastUpdateTime > gestureDelay) {
-    sentence += majority + " ";
-    document.getElementById("sentence-result").innerText =
-      "Kalimat: " + sentence.trim();
-    lastGesture = majority;
-    lastUpdateTime = now;
-    sendPrediction(majority);
-  }
-}
 async function sendPrediction(gesture) {
   try {
     const response = await fetch("/prediction", {

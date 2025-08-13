@@ -5,6 +5,9 @@
     <title>Deteksi Bahasa Isyarat</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
+    <!-- Link ke Manifest PWA -->
+    <link rel="manifest" href="manifest.json" />
+
     <!-- CSS -->
     <link rel="stylesheet" href="style.css" />
 
@@ -36,6 +39,14 @@
         <button onclick="speakSentence()">🔊 Baca Kalimat</button>
       </div>
 
+      <div class="input-mode-section">
+        <p><strong>Pilih Mode Input:</strong> <span id="input-mode-status" style="font-weight: bold; color: #d9534f;">(Tidak Ada)</span></p>
+        <button id="voice-mode-btn">🎤 Aktifkan Mode Suara</button>
+        <button id="gesture-mode-btn" disabled>🖐️ Aktifkan Mode Gestur</button>
+      </div>
+
+      <div id="error-container" class="error-message"></div>
+
       <div class="video-container">
         <video id="webcam" autoplay playsinline></video>
         <canvas id="output-canvas"></canvas>
@@ -43,13 +54,17 @@
 
       <div class="output-section">
         <p id="gesture-result"><strong>Gesture:</strong> -</p>
+        <p id="confidence-result"><strong>Akurasi:</strong> -</p>
         <p id="sentence-result"><strong>Kalimat:</strong> -</p>
         <p id="speech-result">
           <strong>STT:</strong> <i>Menunggu input suara...</i>
         </p>
       </div>
     </div>
+          </div>
+    </div>
 
+    <!-- Tambahkan ini -->
     <script src="script.js"></script>
   </body>
 </html>
